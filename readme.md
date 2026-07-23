@@ -73,7 +73,6 @@ The system is designed for sub-millisecond responsiveness during live interviews
 3.  **VAD & NLP:** Utterances are analyzed to detect if an interviewer asked a question.
 4.  **RAG Context:** Upon question detection, the backend searches PostgreSQL `pgvector` for relevant resume/JD chunks.
 5.  **LLM Generation:** The context is sent to a high-speed LLM (Groq), which streams tokens back to the frontend in real-time.
-For a detailed deep-dive into the architecture, WebSocket protocols, and data models, please see the [PROJECT_ARCHITECTURE.md](PROJECT_ARCHITECTURE.md).
+For a detailed deep-dive into the architecture, WebSocket protocols, and data models.
 ---
-## 📄 License
-[Add License details here]
+
