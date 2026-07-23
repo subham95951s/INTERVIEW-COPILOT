@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InterviewCopilot — Pipeline Test Harness</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Courier New', monospace;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    header {
+      background: #12121a;
+      padding: 16px 24px;
+      border-bottom: 1px solid #2a2a3a;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    header h1 { font-size: 18px; color: #7c6ff7; }
+    .status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #444;
+      transition: background 0.3s;
+    }
+    .status-dot.connected { background: #22c55e; }
+    .status-dot.recording { background: #ef4444; animation: pulse 1s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .latency-badge {
+      margin-left: auto;
+      font-size: 12px;
+      color: #888;
+    }
+    .latency-badge span { color: #22c55e; font-weight: bold; }
+    .resample-warning {
+      display: none;
+      background: #f59e0b22;
+      color: #f59e0b;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 4px;
+    }
+    main {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      overflow: hidden;
+    }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid #2a2a3a;
+    }
+    .panel-header {
+      padding: 12px 16px;
+      background: #12121a;
+      border-bottom: 1px solid #2a2a3a;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #666;
+    }
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .transcript-entry {
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border-left: 3px solid transparent;
+    }
+    .transcript-entry.interviewer {
+      border-left-color: #7c6ff7;
+      background: rgba(124, 111, 247, 0.08);
+    }
+    .transcript-entry.candidate {
+      border-left-color: #22c55e;
+      background: rgba(34, 197, 94, 0.08);
+    }
+    .transcript-entry.question {
+      border-left-color: #f59e0b;
+      background: rgba(245, 158, 11, 0.1);
+    }
+    .transcript-entry .label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+      opacity: 0.6;
+    }
+    .answer-block {
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 14px;
+      line-height: 1.8;
+      color: #d4d4d4;
+    }
+    .answer-block .answer-header {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #7c6ff7;
+      margin-bottom: 8px;
+    }
+    .answer-block .answer-text { color: #e0e0e0; }
+    .answer-block .latency-info {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #555;
+    }
+    .controls {
+      padding: 16px;
+      background: #12121a;
+      border-top: 1px solid #2a2a3a;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    button {
+      padding: 8px 20px;
+      border-radius: 6px;
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #7c6ff7;
+      color: white;
+    }
+    .btn-primary:hover { background: #6b5ee6; }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+    .btn-danger:hover { background: #dc2626; }
+    .session-id-display {
+      font-size: 11px;
+      color: #555;
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="status-dot" id="statusDot"></div>
+    <h1>InterviewCopilot — Pipeline Test</h1>
+    <div class="resample-warning" id="resampleWarning">
+      ⚠️ Audio resampling active — browser didn't honor 16kHz
+    </div>
+    <div class="latency-badge">
+      Last latency: <span id="latencyDisplay">—</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="panel">
+      <div class="panel-header">Live Transcript</div>
+      <div class="panel-body" id="transcriptPanel"></div>
+      <div class="controls">
+        <button class="btn-primary" id="startBtn">Start Recording</button>
+        <button class="btn-danger" id="stopBtn" disabled>Stop</button>
+        <span class="session-id-display" id="sessionIdDisplay"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">AI Answers</div>
+      <div class="panel-body" id="answersPanel"></div>
+    </div>
+  </main>
+
+  <script>
+    const WS_URL = 'ws://localhost:8000';
+    const TARGET_SAMPLE_RATE = 16000;
+    const statusDot = document.getElementById('statusDot');
+    const transcriptPanel = document.getElementById('transcriptPanel');
+    const answersPanel = document.getElementById('answersPanel');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const latencyDisplay = document.getElementById('latencyDisplay');
+    const sessionIdDisplay = document.getElementById('sessionIdDisplay');
+    const resampleWarning = document.getElementById('resampleWarning');
+
+    let ws = null;
+    let audioContext = null;
+    let processor = null;
+    let stream = null;
+    let currentAnswerBlock = null;
+    let needsResampling = false;
+    let actualSampleRate = TARGET_SAMPLE_RATE;
+
+    function generateSessionId() {
+      return 'test-' + Math.random().toString(36).substr(2, 9);
+    }
+
+    function addTranscriptEntry(speaker, text, isQuestion) {
+      const entry = document.createElement('div');
+      const speakerClass = isQuestion ? 'question' :
+        (speaker === '0' ? 'interviewer' : 'candidate');
+      entry.className = `transcript-entry ${speakerClass}`;
+
+      const speakerLabel = isQuestion ? '🎯 QUESTION DETECTED' :
+        (speaker === '0' ? '🎤 Interviewer' : '🗣️ Candidate');
+
+      entry.innerHTML = `
+        <div class="label">${speakerLabel}</div>
+        <div>${text}</div>
+      `;
+      transcriptPanel.appendChild(entry);
+      transcriptPanel.scrollTop = transcriptPanel.scrollHeight;
+    }
+
+    function startNewAnswer() {
+      currentAnswerBlock = document.createElement('div');
+      currentAnswerBlock.className = 'answer-block';
+      currentAnswerBlock.innerHTML = `
+        <div class="answer-header">🤖 Generating answer...</div>
+        <div class="answer-text"></div>
+        <div class="latency-info"></div>
+      `;
+      answersPanel.appendChild(currentAnswerBlock);
+      answersPanel.scrollTop = answersPanel.scrollHeight;
+    }
+
+    function appendAnswerToken(token) {
+      if (!currentAnswerBlock) startNewAnswer();
+      const textEl = currentAnswerBlock.querySelector('.answer-text');
+      if (textEl) {
+        textEl.textContent += token;
+        answersPanel.scrollTop = answersPanel.scrollHeight;
+      }
+    }
+
+    function finalizeAnswer(latencyMs) {
+      if (!currentAnswerBlock) return;
+      const header = currentAnswerBlock.querySelector('.answer-header');
+      const latencyInfo = currentAnswerBlock.querySelector('.latency-info');
+      if (header) header.textContent = '✅ Answer ready';
+      if (latencyInfo) latencyInfo.textContent = `Generated in ${latencyMs}ms`;
+      latencyDisplay.textContent = `${latencyMs}ms`;
+      currentAnswerBlock = null;
+    }
+
+    /**
+     * Resample audio to 16kHz if the browser didn't honor the request.
+     * (fix.md Gap 2.1)
+     */
+    function resampleTo16kHz(float32Buffer, sourceSampleRate) {
+      if (sourceSampleRate === TARGET_SAMPLE_RATE) {
+        return float32Buffer;
+      }
+      const ratio = sourceSampleRate / TARGET_SAMPLE_RATE;
+      const newLength = Math.round(float32Buffer.length / ratio);
+      const result = new Float32Array(newLength);
+      for (let i = 0; i < newLength; i++) {
+        const srcIndex = i * ratio;
+        const floor = Math.floor(srcIndex);
+        const ceil = Math.min(floor + 1, float32Buffer.length - 1);
+        const frac = srcIndex - floor;
+        result[i] = float32Buffer[floor] * (1 - frac) + float32Buffer[ceil] * frac;
+      }
+      return result;
+    }
+
+    async function connectWebSocket(sessionId) {
+      ws = new WebSocket(`${WS_URL}/ws/session/${sessionId}`);
+
+      ws.onopen = () => {
+        statusDot.className = 'status-dot connected';
+        console.log('WebSocket connected');
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        switch (msg.type) {
+          case 'transcript_partial':
+            break;
+
+          case 'transcript_final':
+            addTranscriptEntry(msg.speaker, msg.text, msg.is_question);
+            if (msg.is_question) startNewAnswer();
+            break;
+
+          case 'answer_token':
+            appendAnswerToken(msg.token);
+            break;
+
+          case 'answer_complete':
+            finalizeAnswer(msg.latency_ms);
+            break;
+
+          case 'status':
+            console.warn('Server status:', msg.message);
+            if (currentAnswerBlock) {
+              const header = currentAnswerBlock.querySelector('.answer-header');
+              if (header) header.textContent = '⚠️ ' + msg.message;
+            }
+            break;
+
+          case 'error':
+            console.error('Server error:', msg.message);
+            if (currentAnswerBlock) {
+              const header = currentAnswerBlock.querySelector('.answer-header');
+              if (header) header.textContent = '❌ Error: ' + msg.message;
+            }
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        statusDot.className = 'status-dot';
+        console.log('WebSocket disconnected');
+      };
+
+      ws.onerror = (err) => {
+        console.error('WebSocket error:', err);
+      };
+    }
+
+    async function startRecording() {
+      const sessionId = generateSessionId();
+      sessionIdDisplay.textContent = `Session: ${sessionId}`;
+
+      await connectWebSocket(sessionId);
+
+      // Wait for connection
+      await new Promise(resolve => {
+        const check = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            clearInterval(check);
+            resolve();
+          }
+        }, 100);
+      });
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: TARGET_SAMPLE_RATE,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+        }
+      });
+
+      audioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+
+      // Validate actual sample rate (fix.md Gap 2.1)
+      actualSampleRate = audioContext.sampleRate;
+      if (actualSampleRate !== TARGET_SAMPLE_RATE) {
+        console.warn(
+          `Browser provided ${actualSampleRate}Hz instead of ${TARGET_SAMPLE_RATE}Hz. Resampling active.`
+        );
+        needsResampling = true;
+        resampleWarning.style.display = 'block';
+      }
+
+      const source = audioContext.createMediaStreamSource(stream);
+
+      // ScriptProcessor for broad compatibility
+      processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+      processor.onaudioprocess = (e) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+
+        let float32 = e.inputBuffer.getChannelData(0);
+
+        // Resample if browser didn't honor 16kHz (fix.md Gap 2.1)
+        if (needsResampling) {
+          float32 = resampleTo16kHz(float32, actualSampleRate);
+        }
+
+        // Convert Float32 → Int16 PCM
+        const int16 = new Int16Array(float32.length);
+        for (let i = 0; i < float32.length; i++) {
+          const clamped = Math.max(-1, Math.min(1, float32[i]));
+          int16[i] = clamped < 0 ? clamped * 32768 : clamped * 32767;
+        }
+        ws.send(int16.buffer);
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      statusDot.className = 'status-dot recording';
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      console.log('Recording started, session:', sessionId);
+    }
+
+    function stopRecording() {
+      if (processor) { processor.disconnect(); processor = null; }
+      if (audioContext) { audioContext.close(); audioContext = null; }
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      if (ws) {
+        ws.send(JSON.stringify({ type: 'control', action: 'end_session' }));
+        ws.close();
+        ws = null;
+      }
+      statusDot.className = 'status-dot';
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      needsResampling = false;
+      resampleWarning.style.display = 'none';
+    }
+
+    startBtn.addEventListener('click', startRecording);
+    stopBtn.addEventListener('click', stopRecording);
+  </script>
+</body>
+</html>

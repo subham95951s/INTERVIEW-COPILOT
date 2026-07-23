@@ -1,0 +1,41 @@
+# ─── Environment ───────────────────────────────────────────
+.env
+.env.local
+.env.production
+
+# ─── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ─── Node ──────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/build/
+*.tsbuildinfo
+
+# ─── IDE ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Docker ────────────────────────────────────────────────
+postgres_data/
+redis_data/
+
+# ─── Misc ──────────────────────────────────────────────────
+*.log
+*.bak
